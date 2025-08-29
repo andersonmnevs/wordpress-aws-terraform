@@ -267,9 +267,9 @@ resource "aws_efs_file_system" "main" {
 
 # EFS Mount Targets
 resource "aws_efs_mount_target" "main" {
-  count           = length(aws_subnet.private)
+  count           = length(aws_subnet.public) 
   file_system_id  = aws_efs_file_system.main.id
-  subnet_id       = aws_subnet.private[count.index].id
+  subnet_id       = aws_subnet.public[count.index].id
   security_groups = [aws_security_group.efs.id]
 }
 
@@ -394,6 +394,15 @@ resource "aws_launch_template" "main" {
   }
 
   user_data = local.user_data
+
+  block_device_mappings {
+    device_name = "/dev/xvda"
+    ebs {
+      volume_size = 10
+      volume_type = "gp3"
+      delete_on_termination = true
+    }
+  }
 
   tag_specifications {
     resource_type = "instance"

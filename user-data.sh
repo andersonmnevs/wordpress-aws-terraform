@@ -2,152 +2,128 @@
 exec > >(tee /var/log/user-data.log)
 exec 2>&1
 
-echo "=== WordPress DEV Setup Started - $(date) ==="
+echo "=== WordPress EFS Diagnostics - $(date) ==="
 
-# Verificar conectividade
-echo "=== Testing connectivity ==="
-curl -s --connect-timeout 10 http://www.google.com > /dev/null || {
-    echo "ERROR: No internet connectivity"
-    exit 1
-}
-echo "Internet connectivity OK"
-
-# Atualizar sistema
-echo "=== Updating system packages ==="
+# Instalar pacotes
 dnf update -y
+dnf install -y nginx php php-fpm php-mysqlnd php-gd php-xml php-mbstring php-curl amazon-efs-utils telnet
 
-# Instalar nginx e PHP
-echo "=== Installing nginx and PHP ==="
-dnf install -y nginx php php-fpm php-mysqlnd php-gd php-xml php-mbstring php-curl
-
-# Configurar PHP-FPM
-echo "=== Configuring PHP-FPM ==="
+# Configurar serviços básicos
 sed -i 's/user = apache/user = nginx/' /etc/php-fpm.d/www.conf
 sed -i 's/group = apache/group = nginx/' /etc/php-fpm.d/www.conf
-sed -i 's/;listen.owner = nobody/listen.owner = nginx/' /etc/php-fpm.d/www.conf
-sed -i 's/;listen.group = nobody/listen.group = nginx/' /etc/php-fpm.d/www.conf
 
-# Configuração nginx com PHP
-echo "=== Configuring nginx with PHP ==="
+# Nginx config básico
 cat > /etc/nginx/conf.d/default.conf << 'EOF'
 server {
     listen 80;
     root /var/www/html;
     index index.php index.html;
-
-    location /health {
-        access_log off;
-        return 200 "healthy\n";
-        add_header Content-Type text/plain;
-    }
-
-    location / {
-        try_files $uri $uri/ /index.php?$args;
-    }
-
+    location /health { return 200 "healthy\n"; add_header Content-Type text/plain; }
+    location / { try_files $uri $uri/ /index.php?$args; }
     location ~ \.php$ {
         fastcgi_pass unix:/run/php-fpm/www.sock;
         fastcgi_index index.php;
         fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
         include fastcgi_params;
-        fastcgi_connect_timeout 60;
-        fastcgi_send_timeout 120;
-        fastcgi_read_timeout 120;
-    }
-
-    location ~* \.(jpg|jpeg|png|gif|ico|css|js)$ {
-        expires 1y;
-        access_log off;
     }
 }
 EOF
 
-# Criar estrutura web básica
-echo "=== Creating web structure ==="
+# WordPress básico
 mkdir -p /var/www/html
-
-# Download WordPress
-echo "=== Downloading WordPress ==="
 cd /var/www/html
 curl -L -o latest.tar.gz https://wordpress.org/latest.tar.gz
 tar xzf latest.tar.gz --strip-components=1
 rm latest.tar.gz
 
-# Configuração WordPress para DESENVOLVIMENTO (sem URL fixa)
-echo "=== Configuring WordPress for DEVELOPMENT ==="
-cat > wp-config.php << 'WPEOF'
+# DIAGNÓSTICO COMPLETO EFS
+echo "=== INICIANDO DIAGNÓSTICO EFS ==="
+
+# 1. Testar resolução DNS
+echo "1. Testando resolução DNS do EFS..."
+nslookup fs-02c93541a5c6253d5.efs.us-east-2.amazonaws.com
+dig fs-02c93541a5c6253d5.efs.us-east-2.amazonaws.com
+
+# 2. Testar conectividade de rede
+echo "2. Testando conectividade TCP porta 2049..."
+timeout 10 telnet fs-02c93541a5c6253d5.efs.us-east-2.amazonaws.com 2049
+
+# 3. Verificar mount targets
+echo "3. Informações da instância:"
+curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone
+curl -s http://169.254.169.254/latest/meta-data/network/interfaces/macs/$(curl -s http://169.254.169.254/latest/meta-data/mac)/subnet-id
+
+# 4. Tentar montagem de teste
+echo "4. Testando montagem EFS..."
+mkdir -p /tmp/efs-test
+for i in {1..5}; do
+    echo "Tentativa $i de montagem..."
+    if timeout 30 mount -t efs fs-02c93541a5c6253d5.efs.us-east-2.amazonaws.com:/ /tmp/efs-test; then
+        echo "SUCCESS: EFS montado na tentativa $i"
+        ls -la /tmp/efs-test/
+        umount /tmp/efs-test
+        EFS_WORKING=1
+        break
+    else
+        echo "FAILED: Tentativa $i falhou"
+        dmesg | tail -5
+    fi
+    sleep 10
+done
+
+# Aplicar correção baseada no diagnóstico
+if [ "$EFS_WORKING" = "1" ]; then
+    echo "=== EFS FUNCIONANDO - APLICANDO CONFIGURAÇÃO ==="
+    rm -rf /var/www/html/wp-content
+    mkdir -p /var/www/html/wp-content
+    
+    # Aguardar e montar EFS com verificação
+    sleep 10
+    if mount -t efs fs-02c93541a5c6253d5.efs.us-east-2.amazonaws.com:/ /var/www/html/wp-content; then
+        echo "EFS mounted as wp-content"
+        mkdir -p /var/www/html/wp-content/{themes,plugins,uploads}
+        echo "fs-02c93541a5c6253d5.efs.us-east-2.amazonaws.com:/ /var/www/html/wp-content nfs4 defaults,_netdev" >> /etc/fstab
+        
+        # Verificar montagem
+        if mountpoint -q /var/www/html/wp-content; then
+            echo "SUCCESS: wp-content is on EFS"
+        else
+            echo "ERROR: wp-content mount failed"
+        fi
+    else
+        echo "ERROR: EFS mount failed, creating local wp-content"
+        mkdir -p /var/www/html/wp-content/{themes,plugins,uploads}
+        chmod -R 777 /var/www/html/wp-content/uploads
+    fi
+    echo "EFS CONFIGURADO COM SUCESSO"
+else
+    echo "=== EFS COM PROBLEMA - USANDO DISCO LOCAL ==="
+    mkdir -p /var/www/html/wp-content/{themes,plugins,uploads}
+    chmod -R 777 /var/www/html/wp-content/uploads
+    echo "USANDO DISCO LOCAL TEMPORARIAMENTE"
+fi
+
+# WordPress config
+cat > wp-config.php << 'EOF'
 <?php
-define('DB_NAME', '${db_name}');
-define('DB_USER', '${db_user}');
-define('DB_PASSWORD', '${db_password}');
-define('DB_HOST', '${db_host}');
+define('DB_NAME', 'wordpress');
+define('DB_USER', 'wpuser');
+define('DB_PASSWORD', 'P4ssW0rd-987Strong!');
+define('DB_HOST', 'viposa-wordpress-database.cvxbvg4mkdj5.us-east-2.rds.amazonaws.com');
 define('DB_CHARSET', 'utf8mb4');
-define('DB_COLLATE', '');
-
-// CONFIGURAÇÃO PARA DESENVOLVIMENTO - URL DINÂMICA
-// Remove URLs fixas para permitir acesso via ALB durante desenvolvimento
-// define('WP_HOME', 'http://viposa.com.br');
-// define('WP_SITEURL', 'http://viposa.com.br');
-
-// WordPress Salt Keys
-define('AUTH_KEY', '${auth_key}');
-define('SECURE_AUTH_KEY', '${secure_auth_key}');
-define('LOGGED_IN_KEY', '${logged_in_key}');
-define('NONCE_KEY', '${nonce_key}');
-define('AUTH_SALT', '${auth_salt}');
-define('SECURE_AUTH_SALT', '${secure_auth_salt}');
-define('LOGGED_IN_SALT', '${logged_in_salt}');
-define('NONCE_SALT', '${nonce_salt}');
-
-// WordPress Database Table prefix
 $table_prefix = 'wp_';
-
-// WordPress debugging mode
 define('WP_DEBUG', false);
-define('WP_MEMORY_LIMIT', '256M');
-define('DISALLOW_FILE_EDIT', true);
-
-// Permitir acesso via qualquer domínio durante desenvolvimento
-define('WP_AUTO_UPDATE_CORE', false);
-
-// WordPress absolute path
-if (!defined('ABSPATH'))
-    define('ABSPATH', dirname(__FILE__) . '/');
-
+if (!defined('ABSPATH')) define('ABSPATH', dirname(__FILE__) . '/');
 require_once(ABSPATH . 'wp-settings.php');
-WPEOF
+EOF
 
-# Configurar permissões
-echo "=== Setting permissions ==="
+# Permissões
 chown -R nginx:nginx /var/www/html
 chmod -R 755 /var/www/html
-chmod -R 775 /var/www/html/wp-content
 
 # Iniciar serviços
-echo "=== Starting services ==="
 systemctl enable nginx php-fpm
 systemctl start php-fpm
 systemctl start nginx
 
-# Aguardar serviços
-sleep 15
-
-# Testes finais
-echo "=== Final tests ==="
-if systemctl is-active --quiet nginx && systemctl is-active --quiet php-fpm; then
-    echo "✅ All services running"
-    if curl -f http://localhost/health; then
-        echo "✅ Health check OK"
-    fi
-    if curl -f http://localhost/ >/dev/null; then
-        echo "✅ WordPress responding"
-    fi
-else
-    echo "❌ Service startup failed"
-    systemctl status nginx
-    systemctl status php-fpm
-fi
-
-echo "=== WordPress DEV Setup finished - $(date) ==="
-echo "🎉 WordPress ready for installation via ALB!"
-echo "📝 Access /wp-admin/install.php to configure"
+echo "=== Setup concluído - $(date) ==="
