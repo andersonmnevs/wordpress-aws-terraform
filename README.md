@@ -337,9 +337,9 @@ Este projeto está licenciado sob a MIT License - veja o arquivo [LICENSE](LICEN
 ## ✨ Autor
 
 **Anderson Viposa**
-- GitHub: [@seu-usuario](https://github.com/seu-usuario)
-- LinkedIn: [Seu LinkedIn](https://linkedin.com/in/seu-linkedin)
-- Email: seu.email@viposa.com.br
+- GitHub: [@andersonmnevs](https://github.com/andersonmnevs)
+- LinkedIn: [andersonneves-cloudaws-dev](https://www.linkedin.com/in/andersonneves-cloudaws-dev)
+- Email: anderson.neves@viposa.com.br
 
 ---
 
