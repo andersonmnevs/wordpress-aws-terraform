@@ -7,7 +7,7 @@ variable "aws_region" {
 variable "environment" {
   description = "Environment name"
   type        = string
-  default     = "desenvolvimento"
+  default     = "producao"
 }
 
 variable "project_name" {
@@ -18,6 +18,7 @@ variable "project_name" {
 variable "domain_name" {
   description = "Domain name for WordPress"
   type        = string
+  default     = "institucional.viposa.com.br" 
 }
 
 variable "vpc_cidr" {
@@ -84,4 +85,10 @@ variable "enable_multi_az_rds" {
   description = "Enable Multi-AZ for RDS"
   type        = bool
   default     = false
+}
+
+variable "hosted_zone_id" {
+  description = "Route 53 Hosted Zone ID"
+  type        = string
+  default     = "Z03997652MHUZI04CHLGJ"
 }

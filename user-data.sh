@@ -41,12 +41,12 @@ echo "=== INICIANDO DIAGNÓSTICO EFS ==="
 
 # 1. Testar resolução DNS
 echo "1. Testando resolução DNS do EFS..."
-nslookup fs-02c93541a5c6253d5.efs.us-east-2.amazonaws.com
-dig fs-02c93541a5c6253d5.efs.us-east-2.amazonaws.com
+nslookup ${efs_id}.efs.${aws_region}.amazonaws.com
+dig ${efs_id}.efs.${aws_region}.amazonaws.com
 
 # 2. Testar conectividade de rede
 echo "2. Testando conectividade TCP porta 2049..."
-timeout 10 telnet fs-02c93541a5c6253d5.efs.us-east-2.amazonaws.com 2049
+timeout 10 telnet ${efs_id}.efs.${aws_region}.amazonaws.com 2049
 
 # 3. Verificar mount targets
 echo "3. Informações da instância:"
@@ -58,7 +58,7 @@ echo "4. Testando montagem EFS..."
 mkdir -p /tmp/efs-test
 for i in {1..5}; do
     echo "Tentativa $i de montagem..."
-    if timeout 30 mount -t efs fs-02c93541a5c6253d5.efs.us-east-2.amazonaws.com:/ /tmp/efs-test; then
+    if timeout 30 mount -t efs ${efs_id}.efs.${aws_region}.amazonaws.com:/ /tmp/efs-test; then
         echo "SUCCESS: EFS montado na tentativa $i"
         ls -la /tmp/efs-test/
         umount /tmp/efs-test
@@ -79,10 +79,10 @@ if [ "$EFS_WORKING" = "1" ]; then
     
     # Aguardar e montar EFS com verificação
     sleep 10
-    if mount -t efs fs-02c93541a5c6253d5.efs.us-east-2.amazonaws.com:/ /var/www/html/wp-content; then
+    if mount -t efs ${efs_id}.efs.${aws_region}.amazonaws.com:/ /var/www/html/wp-content; then
         echo "EFS mounted as wp-content"
         mkdir -p /var/www/html/wp-content/{themes,plugins,uploads}
-        echo "fs-02c93541a5c6253d5.efs.us-east-2.amazonaws.com:/ /var/www/html/wp-content nfs4 defaults,_netdev" >> /etc/fstab
+        echo "${efs_id}.efs.${aws_region}.amazonaws.com:/ /var/www/html/wp-content nfs4 defaults,_netdev" >> /etc/fstab
         
         # Verificar montagem
         if mountpoint -q /var/www/html/wp-content; then
@@ -103,15 +103,30 @@ else
     echo "USANDO DISCO LOCAL TEMPORARIAMENTE"
 fi
 
-# WordPress config
+# WordPress config com variáveis - HTTP APENAS
 cat > wp-config.php << 'EOF'
 <?php
-define('DB_NAME', 'wordpress');
-define('DB_USER', 'wpuser');
-define('DB_PASSWORD', 'P4ssW0rd-987Strong!');
-define('DB_HOST', 'viposa-wordpress-database.cvxbvg4mkdj5.us-east-2.rds.amazonaws.com');
+define('DB_NAME', '${db_name}');
+define('DB_USER', '${db_user}');
+define('DB_PASSWORD', '${db_password}');
+define('DB_HOST', '${db_host}');
 define('DB_CHARSET', 'utf8mb4');
 $table_prefix = 'wp_';
+
+// WordPress salts
+define('AUTH_KEY',         '${auth_key}');
+define('SECURE_AUTH_KEY',  '${secure_auth_key}');
+define('LOGGED_IN_KEY',    '${logged_in_key}');
+define('NONCE_KEY',        '${nonce_key}');
+define('AUTH_SALT',        '${auth_salt}');
+define('SECURE_AUTH_SALT', '${secure_auth_salt}');
+define('LOGGED_IN_SALT',   '${logged_in_salt}');
+define('NONCE_SALT',       '${nonce_salt}');
+
+// WordPress URLs - HTTP APENAS
+define('WP_HOME', 'http://${domain_name}');
+define('WP_SITEURL', 'http://${domain_name}');
+
 define('WP_DEBUG', false);
 if (!defined('ABSPATH')) define('ABSPATH', dirname(__FILE__) . '/');
 require_once(ABSPATH . 'wp-settings.php');

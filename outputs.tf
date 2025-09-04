@@ -1,11 +1,21 @@
 output "wordpress_url" {
-  description = "URL do WordPress"
+  description = "URL do WordPress (HTTP)"
   value       = "http://${aws_lb.main.dns_name}"
 }
 
 output "wordpress_admin_url" {
-  description = "URL do admin WordPress"
+  description = "URL do admin WordPress (HTTP)"
   value       = "http://${aws_lb.main.dns_name}/wp-admin/"
+}
+
+output "wordpress_url_http" {
+  description = "WordPress website URL (HTTP)"
+  value       = "http://${var.domain_name}"
+}
+
+output "wordpress_www_url_http" {
+  description = "WordPress website URL with www (HTTP)"
+  value       = "http://www.${var.domain_name}"
 }
 
 output "alb_dns_name" {
@@ -36,5 +46,17 @@ output "vpc_id" {
 
 output "cost_estimate" {
   description = "Estimativa de custo mensal"
-  value       = "~$35-45 USD/mês (t3.micro + db.t3.micro + EFS + ALB)"
+  value       = "~$30-35 USD/mês (t3.micro + db.t3.micro + EFS + ALB - sem Route53)"
+}
+
+output "acm_validation_records" {
+  description = "Registros DNS para validação manual do ACM"
+  value = [
+    for dvo in aws_acm_certificate.main.domain_validation_options : {
+      domain = dvo.domain_name
+      name   = trimsuffix(dvo.resource_record_name, ".viposa.com.br.")
+      type   = dvo.resource_record_type
+      value  = trimsuffix(dvo.resource_record_value, ".")
+    }
+  ]
 }
